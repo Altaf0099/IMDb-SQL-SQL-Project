@@ -1,0 +1,204 @@
+🔶 SUBQUERY TASKS
+1️⃣ Customers whose total spending > average spending
+
+WITH customer_spend AS (
+  SELECT
+    o.customer_id,
+    SUM(oi.price * oi.quantity) AS total_spend
+  FROM orders_day4 o
+  JOIN order_items_day4 oi ON o.order_id = oi.order_id
+  GROUP BY o.customer_id
+),
+avg_spend AS (
+  SELECT AVG(total_spend) AS avg_total_spend FROM customer_spend
+)
+SELECT cs.customer_id, c.customer_name, cs.total_spend
+FROM customer_spend cs
+JOIN avg_spend a ON 1=1
+JOIN customers_day4 c ON c.customer_id = cs.customer_id
+WHERE cs.total_spend > a.avg_total_spend
+ORDER BY cs.total_spend DESC;
+
+
+2️⃣ Products priced above average product price
+SELECT
+  p.product_id,
+  p.product_name,
+  AVG(oi.price) AS avg_price
+FROM products_day4 p
+JOIN order_items_day4 oi ON p.product_id = oi.product_id
+GROUP BY p.product_id, p.product_name
+HAVING AVG(oi.price) > (SELECT AVG(price) FROM order_items_day4);
+
+3️⃣ Orders with more items than average items per order
+SELECT
+  oi.order_id,
+  SUM(oi.quantity) AS total_items
+FROM order_items_day4 oi
+GROUP BY oi.order_id
+HAVING SUM(oi.quantity) > (
+  SELECT AVG(items) FROM (
+    SELECT SUM(quantity) AS items
+    FROM order_items_day4
+    GROUP BY order_id
+  ) t
+);
+
+4️⃣ Customers who joined before the earliest order date
+SELECT *
+FROM customers_day4
+WHERE signup_year < (
+  SELECT MIN(YEAR(order_date)) FROM orders_day4
+);
+
+5️⃣ Customers who made more orders than average
+SELECT customer_id, customer_name, orders_count
+FROM (
+  SELECT o.customer_id, c.customer_name, COUNT(*) AS orders_count
+  FROM orders_day4 o
+  JOIN customers_day4 c ON c.customer_id = o.customer_id
+  GROUP BY o.customer_id, c.customer_name
+) t
+WHERE orders_count > (
+  SELECT AVG(cnt) FROM (
+    SELECT COUNT(*) AS cnt
+    FROM orders_day4
+    GROUP BY customer_id
+  ) x
+)
+ORDER BY orders_count DESC;
+
+
+🔶 EXISTS / NOT EXISTS TASKS
+6️⃣ Customers who have never placed an order
+SELECT *
+FROM customers_day4 c
+WHERE NOT EXISTS (
+  SELECT 1 FROM orders_day4 o WHERE o.customer_id = c.customer_id
+);
+
+7️⃣ Orders that contain at least one Electronics product
+SELECT DISTINCT o.order_id
+FROM orders_day4 o
+JOIN order_items_day4 oi ON o.order_id = oi.order_id
+JOIN products_day4 p ON oi.product_id = p.product_id
+WHERE p.category = 'Electronics';
+
+
+8️⃣ Products that were never purchased
+SELECT p.*
+FROM products_day4 p
+WHERE NOT EXISTS (
+  SELECT 1 FROM order_items_day4 oi WHERE oi.product_id = p.product_id
+);
+
+🔶 ADVANCED JOIN TASKS
+9️⃣ Show each order with:
+
+customer name
+
+total items
+
+total amount
+
+SELECT
+  o.order_id,
+  c.customer_name,
+  SUM(oi.quantity)      AS total_items,
+  SUM(oi.price * oi.quantity) AS total_amount
+FROM orders_day4 o
+JOIN customers_day4 c ON o.customer_id = c.customer_id
+JOIN order_items_day4 oi ON o.order_id = oi.order_id
+GROUP BY o.order_id, c.customer_name
+ORDER BY total_amount DESC;
+
+
+🔟 For each category, list top 3 most frequently purchased products
+
+WITH prod_sales AS (
+  SELECT
+    p.category,
+    p.product_id,
+    p.product_name,
+    SUM(oi.quantity) AS qty_sold
+  FROM products_day4 p
+  JOIN order_items_day4 oi ON p.product_id = oi.product_id
+  GROUP BY p.category, p.product_id, p.product_name
+)
+SELECT category, product_id, product_name, qty_sold
+FROM (
+  SELECT ps.*,
+         ROW_NUMBER() OVER (PARTITION BY ps.category ORDER BY ps.qty_sold DESC) AS rn
+  FROM prod_sales ps
+) t
+WHERE rn <= 3
+ORDER BY category, qty_sold DESC;
+
+
+1️⃣1️⃣ Customers who purchased items from 5+ different categories
+SELECT
+  c.customer_id,
+  c.customer_name,
+  COUNT(DISTINCT p.category) AS categories_bought
+FROM customers_day4 c
+JOIN orders_day4 o ON c.customer_id = o.customer_id
+JOIN order_items_day4 oi ON o.order_id = oi.order_id
+JOIN products_day4 p ON oi.product_id = p.product_id
+GROUP BY c.customer_id, c.customer_name
+HAVING COUNT(DISTINCT p.category) >= 5
+ORDER BY categories_bought DESC;
+
+🔶 RANKING & ANALYTICS
+1️⃣2️⃣ Rank products inside each category by total sales amount
+WITH product_sales AS (
+  SELECT
+    p.category,
+    p.product_id,
+    p.product_name,
+    SUM(oi.price * oi.quantity) AS total_sales
+  FROM products_day4 p
+  JOIN order_items_day4 oi ON p.product_id = oi.product_id
+  GROUP BY p.category, p.product_id, p.product_name
+)
+SELECT
+  category,
+  product_id,
+  product_name,
+  total_sales,
+  RANK() OVER (PARTITION BY category ORDER BY total_sales DESC) AS sales_rank
+FROM product_sales
+ORDER BY category, sales_rank;
+
+1️⃣3️⃣ For each customer, calculate:
+
+first purchase date
+
+last purchase date
+
+gap in days
+
+SELECT
+  c.customer_id,
+  c.customer_name,
+  MIN(o.order_date) AS first_purchase,
+  MAX(o.order_date) AS last_purchase,
+  DATEDIFF(MAX(o.order_date), MIN(o.order_date)) AS gap_days
+FROM customers_day4 c
+JOIN orders_day4 o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.customer_name
+ORDER BY gap_days DESC;
+
+
+1️⃣4️⃣ Identify the most valuable customer (highest total spend)	
+
+SELECT
+  c.customer_id,
+  c.customer_name,
+  SUM(oi.price * oi.quantity) AS total_spend
+FROM customers_day4 c
+JOIN orders_day4 o ON c.customer_id = o.customer_id
+JOIN order_items_day4 oi ON o.order_id = oi.order_id
+GROUP BY c.customer_id, c.customer_name
+ORDER BY total_spend DESC
+LIMIT 1;
+					
