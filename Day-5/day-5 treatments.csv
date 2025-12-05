@@ -1,0 +1,3 @@
+treatment_id,appointment_id,treatment
+501,1001,ECG
+502,1002,MRI
